@@ -38,6 +38,12 @@ UwbRepublisher::UwbRepublisher(const rclcpp::NodeOptions & options)
   // Create publishers for each drone
   createPublishers();
 
+  // Create aggregated positions publisher
+  positions_array_pub_ = this->create_publisher<tello_uwb::msg::DronePositionArray>(
+    "/uwb/positions",
+    rclcpp::SensorDataQoS());
+  RCLCPP_INFO(this->get_logger(), "  Created aggregated publisher: /uwb/positions");
+
   // Subscribe to LinkTrack anchor frame data
   anchor_sub_ = this->create_subscription<nlink_parser::msg::LinktrackAnchorframe0>(
     input_topic,
@@ -107,6 +113,10 @@ void UwbRepublisher::anchorFrameCallback(
 {
   rclcpp::Time stamp = this->now();
 
+  // Prepare aggregated message for all drones
+  tello_uwb::msg::DronePositionArray array_msg;
+  array_msg.drones.reserve(tag_to_drone_map_.size());
+
   for (const auto & tag : msg->nodes) {
     // Filter by expected role (typically role 2 for tags)
     if (tag.role != expected_role_) {
@@ -129,9 +139,21 @@ void UwbRepublisher::anchorFrameCallback(
       continue;
     }
 
-    // Create and publish the PointStamped message
+    // Create and publish the PointStamped message to individual topic
     auto point_msg = createPointStamped(tag, stamp);
     pub_it->second->publish(point_msg);
+
+    // Add to aggregated message
+    tello_uwb::msg::DronePosition drone_pos;
+    drone_pos.drone_id = it->second;  // drone name
+    drone_pos.uwb_tag_id = tag.id;    // numeric UWB tag ID
+    drone_pos.position = point_msg;
+    array_msg.drones.push_back(drone_pos);
+  }
+
+  // Publish aggregated message if we have any valid drone positions
+  if (!array_msg.drones.empty()) {
+    positions_array_pub_->publish(array_msg);
   }
 }
 

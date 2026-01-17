@@ -11,23 +11,25 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
+find_package(ament_cmake_python REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
 find_package(rclpy REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nlink_parser REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
 
-if(BUILD_TESTING)
-  find_package(ament_lint_auto REQUIRED)
-  # the following line skips the linter which checks for copyrights
-  # comment the line when a copyright and license is added to all source files
-  set(ament_cmake_copyright_FOUND TRUE)
-  # the following line skips cpplint (only works in a git repo)
-  # comment the line when this package is in a git repo and when
-  # a copyright and license is added to all source files
-  set(ament_cmake_cpplint_FOUND TRUE)
-  ament_lint_auto_find_test_dependencies()
-endif()
+ament_python_install_package(tello_uwb_py)
+
+# Generate Custom Messages
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/DronePosition.msg"
+  "msg/DronePositionArray.msg"
+  DEPENDENCIES std_msgs geometry_msgs
+)
+ament_export_dependencies(rosidl_default_runtime)
+
 
 # Install launch files
 install(DIRECTORY
@@ -64,18 +66,21 @@ rclcpp_components_register_nodes(uwb_republisher_component
 
 # Add standalone executable
 add_executable(uwb_republisher src/uwb_republisher.cpp)
-
 target_include_directories(uwb_republisher PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
-
 ament_target_dependencies(uwb_republisher
   rclcpp
   rclcpp_components
   geometry_msgs
   nlink_parser
 )
+
+rosidl_get_typesupport_target(cpp_typesupport_target_republisher
+  ${PROJECT_NAME} "rosidl_typesupport_cpp")
+target_link_libraries(uwb_republisher "${cpp_typesupport_target_republisher}")
+target_link_libraries(uwb_republisher_component "${cpp_typesupport_target_republisher}")
 
 # Install targets
 install(TARGETS 
@@ -87,9 +92,8 @@ install(TARGETS
 )
 
 # Install Python Executable
-ament_python_install_package(${PROJECT_NAME})
 install(PROGRAMS
-  tello_uwb/subscriber_gui.py
+  tello_uwb_py/uwb_viz.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

@@ -12,6 +12,8 @@
 #include "rclcpp/rclcpp.hpp"
 #include "geometry_msgs/msg/point_stamped.hpp"
 #include "nlink_parser/msg/linktrack_anchorframe0.hpp"
+#include "tello_uwb/msg/drone_position.hpp"
+#include "tello_uwb/msg/drone_position_array.hpp"
 
 namespace tello_uwb
 {
@@ -76,6 +78,9 @@ private:
   // Maps uwb_tag_id -> publisher
   std::unordered_map<int, rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr>
     position_publishers_;
+
+  // Aggregated publisher for all drone positions
+  rclcpp::Publisher<tello_uwb::msg::DronePositionArray>::SharedPtr positions_array_pub_;
 
   // Subscription to LinkTrack data
   rclcpp::Subscription<nlink_parser::msg::LinktrackAnchorframe0>::SharedPtr anchor_sub_;

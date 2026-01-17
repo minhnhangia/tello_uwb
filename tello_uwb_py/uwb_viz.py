@@ -6,6 +6,7 @@ import time
 import threading
 import json
 import copy
+import os
 from pathlib import Path
 
 import rclpy
@@ -93,27 +94,23 @@ class UWBVisualization(Node):
         self.get_logger().info('Subscribed to /uwb/positions')
 
     def load_marked_positions(self, filename=None):
-        """Load marked positions from JSON file. Do not include .json extension and UWBViz/ directory"""
+        """Load marked positions from JSON file. Do not include .json extension"""
 
-        # if not filename:
-        #     user_input = simpledialog.askstring("Load Marked Positions", 
-        #                                     f"Enter JSON filename to load (without .json extension) \nDefault: {MARKEDPOINTS_JSON_DEFAULT}")
-            
-        #     filename = MARKEDPOINTS_JSON_DEFAULT if user_input == "" else f"{user_input}.json"
         if filename:
-            full_filename = f"UWBViz/{filename}.json"
-            print(f"Full filename: {full_filename}")
+            full_path = UWBVIZ_DIR / f"{filename}.json"
+            print(f"Loading from: {full_path}")
         else:
             print("No filename provided. Not loading.")
             return
 
         try:
-            with open(full_filename, 'r') as f:
+            with open(full_path, 'r') as f:
                 self.loaded_marked_pos = json.load(f)["points"]
                 self.loaded_marked_pos_filename = filename
-            print("[INFO] Marked positions loaded successfully.")
+            print(f"[INFO] Marked positions loaded successfully from {full_path}")
         except FileNotFoundError:
-            print("[INFO] No saved marked positions found.")
+            print(f"[ERROR] File not found: {full_path}")
+            print(f"[INFO] Make sure the file exists in {UWBVIZ_DIR}")
         except Exception as e:
             print(f"[ERROR] Could not load marked positions: {e}")
 
@@ -138,12 +135,15 @@ class UWBVisualization(Node):
         dialog_window.geometry(f"+{x}+{y}")
         
         # Get list of JSON files in UWBViz/ directory
-        uwbviz_dir = "UWBViz/"
         json_files = []
         try:
-            json_files = [f.replace('.json', '') for f in os.listdir(uwbviz_dir) if f.endswith('.json')]
+            # Ensure directory exists
+            UWBVIZ_DIR.mkdir(parents=True, exist_ok=True)
+            json_files = [f.replace('.json', '') for f in os.listdir(UWBVIZ_DIR) if f.endswith('.json')]
         except FileNotFoundError:
-            print(f"Warning: Directory {uwbviz_dir} not found")
+            print(f"Warning: Directory {UWBVIZ_DIR} not found")
+        except Exception as e:
+            print(f"Warning: Could not list files in {UWBVIZ_DIR}: {e}")
         
         # Ensure default is in the list
         if MARKEDPOINTS_JSON_DEFAULT not in json_files:

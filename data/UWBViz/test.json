@@ -1,0 +1,30 @@
+{
+    "points": [
+        {
+            "x": 3.14,
+            "y": 17.23,
+            "z": 0,
+            "type": "waypoint"
+        },
+        {
+            "x": 15.37,
+            "y": 17.29,
+            "z": 0,
+            "type": "waypoint"
+        },
+        {
+            "x": 15.37,
+            "y": 7.4,
+            "z": 0,
+            "type": "waypoint"
+        }
+    ],
+    "metadata": {
+        "total_points": 3,
+        "total_wall_segments": 0,
+        "total_pillars": 0,
+        "total_victims": 0,
+        "total_danger": 0,
+        "total_waypoints": 3
+    }
+}

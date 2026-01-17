@@ -1,5 +1,6 @@
-import pygame, json, time, math
+import pygame, json, time, math, os
 from typing import List, Dict, Any, Tuple
+from pathlib import Path
 import tkinter as tk
 from tkinter import simpledialog, messagebox
 from datetime import datetime
@@ -46,16 +47,24 @@ def load_waypoints():
     user_input = simpledialog.askstring("Load Waypoints (cancel to clear)", 
                                         f"Enter JSON filename to load (without .json extension) \nDefault: {WAYPOINTS_JSON_DEFAULT}")
         
-    filename = WAYPOINTS_JSON_DEFAULT if user_input == "" else f"{user_input}.json"
+    if user_input is None:  # User cancelled
+        return []
+    
+    filename = WAYPOINTS_JSON_DEFAULT if user_input == "" else user_input
+    full_path = WAYPOINTS_DIR / f"{filename}.json"
     
     try:
-        with open(filename, 'r') as f:
+        with open(full_path, 'r') as f:
             data = json.load(f)
             waypoints = data.get("wp", [])
+            print(f"[INFO] Waypoints loaded from {full_path}")
             return [(point['position_cm']['x'] / 100, point['position_cm']['y'] / 100) 
                    for point in waypoints]
+    except FileNotFoundError:
+        print(f"[ERROR] Waypoints file not found: {full_path}")
+        return []
     except Exception as e:
-        print(f"Error loading waypoints: {e}")
+        print(f"[ERROR] Error loading waypoints: {e}")
         return []
 
 class Visualization:
@@ -251,7 +260,7 @@ class RecordingManager:
                 return  
             else:
                 filename = MARKEDPOINTS_JSON_DEFAULT if user_input == "" else user_input
-                full_filename = f"UWBViz/{filename}.json"
+                full_path = UWBVIZ_DIR / f"{filename}.json"
             
                 # Count pillars, victims, and danger points *before* creating the JSON
                 total_pillars = 0
@@ -281,25 +290,32 @@ class RecordingManager:
                             'total_waypoints': total_waypoints
                         }
                     }
-                with open(full_filename, 'w') as f:
+                
+                # Ensure directory exists
+                full_path.parent.mkdir(parents=True, exist_ok=True)
+                
+                with open(full_path, 'w') as f:
                     json.dump(json_data, f, indent=4)
-                print(f"[INFO] Recorded positions and waypoints saved to {full_filename}")
+                print(f"[INFO] Recorded positions and waypoints saved to {full_path}")
 
                 # NEW - save waypoints separately
                 if total_waypoints > 0:
                     user_input = simpledialog.askstring("Save Marked Waypoints Separately?", 
-                                        f"Enter JSON filename to save waypoints separately (without .json extension and UWBViz/ directory) \nDefault: {MARKEDWAYPOINTS_JSON_DEFAULT}")
+                                        f"Enter JSON filename to save waypoints separately (without .json extension) \nDefault: {MARKEDWAYPOINTS_JSON_DEFAULT}")
                     if user_input is None:  # User clicked Cancel
                         print('Waypoints not saved separately.')
                     else:
                         waypoints_filename = MARKEDWAYPOINTS_JSON_DEFAULT if user_input == "" else user_input
-                        waypoints_full_filename = f"UWBViz/{waypoints_filename}.json"
+                        waypoints_full_path = WAYPOINTS_DIR / f"{waypoints_filename}.json"
 
                         converted_json_data = convert_json(json_data)
                     
-                        with open(waypoints_full_filename, 'w') as f:
+                        # Ensure directory exists
+                        waypoints_full_path.parent.mkdir(parents=True, exist_ok=True)
+                        
+                        with open(waypoints_full_path, 'w') as f:
                             json.dump(converted_json_data, f, indent=4)
-                        print(f"[INFO] Recorded waypoints saved to {waypoints_full_filename}")
+                        print(f"[INFO] Recorded waypoints saved to {waypoints_full_path}")
                          
                 return filename
             

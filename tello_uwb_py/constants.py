@@ -22,7 +22,7 @@ RED = (255, 0, 0)
 # File paths - Use absolute paths from workspace root
 WORKSPACE_ROOT = Path.home() / "tello_ros_ws" / "src" / "tello_localization" / "tello_uwb"
 RESOURCES_DIR = WORKSPACE_ROOT / "resources"
-BGPIC = str(RESOURCES_DIR / "field2025_toscale.png")
+BGPIC = str(RESOURCES_DIR / "field2026.png")
 
 # Data directories
 DATA_DIR = WORKSPACE_ROOT / "data"

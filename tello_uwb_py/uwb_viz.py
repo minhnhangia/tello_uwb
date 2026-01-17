@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import pygame
 import sys
 import time
@@ -6,23 +8,23 @@ import json
 import copy
 from pathlib import Path
 
-from tello_uwb.constants import *
-from tello_uwb.utils import *
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
+
+from tello_uwb_py.constants import *
+from tello_uwb_py.utils import *
 import pandas as pd
+
+from tello_uwb.msg import DronePositionArray
 
 import tkinter as tk
 from tkinter import simpledialog, ttk
 
 """
-    python -m UWBViz.main
-    NOTE: To apply UWB offset (i.e. when UWB origin not at map 0,0), see UWB_ReadUDP
+    ROS2 node for UWB position visualization
+    Subscribes to /uwb/positions topic published by uwb_republisher
 """
-
-# Add workspace root to sys.path (9 Jan: Works but might need a better solution)
-workspace_root = Path(__file__).resolve().parent.parent
-sys.path.append(str(workspace_root))
-from UWB_Wrapper.UWB_ReadUDP import get_all_positions
-
 
 # Create a Tkinter root window (but don't show it)
 root = tk.Tk()
@@ -30,8 +32,9 @@ root.withdraw()  # Hide the main Tkinter window
 
 user_input = ""  # Store the user's input
 
-class UWBVisualization:
+class UWBVisualization(Node):
     def __init__(self):
+        super().__init__('uwb_visualization')
         pygame.init()
         self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.RESIZABLE)
         pygame.display.set_caption("UWB Position Visualization")
@@ -67,13 +70,27 @@ class UWBVisualization:
         # Recording manager
         self.recording_manager = RecordingManager()
 
-        # Thread control
+        # Thread control for pause/resume during user input
         self.data_event = threading.Event()
         self.data_event.set()
 
-        # Start data collection thread
-        self.data_thread = threading.Thread(target=self.collect_data, daemon=True)
-        self.data_thread.start()
+        # ROS2 subscription to aggregated UWB positions
+        qos_profile = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            durability=DurabilityPolicy.VOLATILE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=10
+        )
+        
+        self.subscription = self.create_subscription(
+            DronePositionArray,
+            '/uwb/positions',
+            self.positions_callback,
+            qos_profile
+        )
+        
+        self.get_logger().info('UWB Visualization initialized')
+        self.get_logger().info('Subscribed to /uwb/positions')
 
     def load_marked_positions(self, filename=None):
         """Load marked positions from JSON file. Do not include .json extension and UWBViz/ directory"""
@@ -215,42 +232,59 @@ class UWBVisualization:
         
         return False
 
-    def collect_data(self):
-        while True:
-            self.data_event.wait()  # Block if the event is cleared (paused)
-            
-            if self.mouse_simulation:       # IMPT: This blocks all other real UWB readings!
-                # Create DataFrame from mouse position
-                mouse_x, mouse_y = pygame.mouse.get_pos()
-                uwb_x, uwb_y = self.coord_system.uwb_coordinates(mouse_x, mouse_y)
-                self.simulated_tags[0]['x'] = uwb_x
-                self.simulated_tags[0]['y'] = uwb_y
-                
-                # Convert simulated data to DataFrame
-                rows = []
-                for tag_id, pos in self.simulated_tags.items():
-                    rows.append({
-                        'id': tag_id,
-                        'role': 0,
-                        'x': pos['x'],
-                        'y': pos['y'],
-                        'z': pos['z'],
-                        'timestamp': time.time()
-                    })
-                df = pd.DataFrame(rows)
-                
-                with self.data_lock:
-                    self.latest_positions_data = df
-            else:
-                try:
-                    df = get_all_positions()
-                    if not df.empty:
-                        with self.data_lock:
-                            self.latest_positions_data = df.groupby('id').last().reset_index()
-                except Exception as e:
-                    print(f"Error reading data: {e}")
-            
-            time.sleep(0.01)
+    def positions_callback(self, msg: DronePositionArray):
+        """Callback for receiving aggregated UWB positions from ROS2 topic."""
+        # Don't process real data when in mouse simulation mode
+        if self.mouse_simulation:
+            return
+        
+        # Don't process data when paused (e.g., during user input dialogs)
+        if not self.data_event.is_set():
+            return
+        
+        # Convert ROS2 message to DataFrame format expected by visualization
+        rows = []
+        for drone in msg.drones:
+            rows.append({
+                'id': drone.uwb_tag_id,  # Use numeric UWB tag ID
+                'role': 2,  # Assume role 2 (tags) - already filtered by uwb_republisher
+                'x': drone.position.point.x,
+                'y': drone.position.point.y,
+                'z': drone.position.point.z,
+                'timestamp': drone.position.header.stamp.sec + 
+                            drone.position.header.stamp.nanosec * 1e-9
+            })
+        
+        if rows:
+            df = pd.DataFrame(rows)
+            with self.data_lock:
+                self.latest_positions_data = df
+    
+    def update_mouse_simulation(self):
+        """Update simulated tag position based on mouse position."""
+        if not self.mouse_simulation:
+            return
+        
+        mouse_x, mouse_y = pygame.mouse.get_pos()
+        uwb_x, uwb_y = self.coord_system.uwb_coordinates(mouse_x, mouse_y)
+        self.simulated_tags[0]['x'] = uwb_x
+        self.simulated_tags[0]['y'] = uwb_y
+        
+        # Convert simulated data to DataFrame
+        rows = []
+        for tag_id, pos in self.simulated_tags.items():
+            rows.append({
+                'id': tag_id,
+                'role': 0,
+                'x': pos['x'],
+                'y': pos['y'],
+                'z': pos['z'],
+                'timestamp': time.time()
+            })
+        df = pd.DataFrame(rows)
+        
+        with self.data_lock:
+            self.latest_positions_data = df
 
     def handle_events(self):
         for event in pygame.event.get():
@@ -376,14 +410,20 @@ class UWBVisualization:
             print(f"Registering tag number: {number_pressed}")
 
     def pause_data_thread(self):
-        print("[INFO] Pausing data collection thread. Please type input in the terminal.")
-        self.data_event.clear()  # Pause the thread
+        """Pause processing of ROS2 position updates during user input."""
+        self.get_logger().info('Pausing position updates for user input')
+        self.data_event.clear()
 
     def resume_data_thread(self):
-        print("[INFO] Resuming data collection thread.")
-        self.data_event.set()  # Resume the thread
+        """Resume processing of ROS2 position updates."""
+        self.get_logger().info('Resuming position updates')
+        self.data_event.set()
 
     def update(self):
+        # Update mouse simulation if enabled
+        if self.mouse_simulation:
+            self.update_mouse_simulation()
+        
         with self.data_lock:
             current_positions = copy.deepcopy(self.latest_positions_data)
         
@@ -450,19 +490,44 @@ class UWBVisualization:
 
     def run(self):
         clock = pygame.time.Clock()
-        print("[INFO] Press ESC to exit, SPACE for trails, ENTER for controls, L to load waypoints")
-        print("[INFO] V/D/P to mark Victims/Dangers/Pillars, M to load markers")
+        self.get_logger().info('Starting visualization loop')
+        self.get_logger().info('Controls: ESC=exit, SPACE=trails, ENTER=pan/zoom, L=load waypoints')
+        self.get_logger().info('Recording: R=toggle, W=walls, V/D/P=victims/dangers/pillars, M=load markers')
         
         running = True
-        while running:
+        while running and rclpy.ok():
+            # Process ROS2 callbacks (non-blocking)
+            rclpy.spin_once(self, timeout_sec=0)
+            
+            # Process Pygame events and rendering
             running = self.handle_events()
             self.update()
             self.draw()
             clock.tick(30)
         
+        self.get_logger().info('Shutting down visualization')
         pygame.quit()
-        sys.exit()
+
+def main(args=None):
+    """Main entry point for ROS2 node."""
+    rclpy.init(args=args)
+    
+    app = None
+    try:
+        app = UWBVisualization()
+        app.run()
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:
+        print(f"Error during execution: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        # Cleanup
+        if app is not None and rclpy.ok():
+            app.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 if __name__ == "__main__":
-    app = UWBVisualization()
-    app.run()
+    main()

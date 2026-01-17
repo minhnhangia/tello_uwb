@@ -449,42 +449,124 @@ class UWBVisualization(Node):
         if self.recording_manager.recorded_points:  # Draw marked positions and newly marked waypoints
             self.visualization.draw_marked_positions(self.recording_manager.recorded_points)
 
-        # Draw white boxes behind text for better readability
+        # === UI OVERLAY ===
+        
+        # Recording status banner (top)
         if self.recording_manager.recording:
-            font = pygame.font.Font(None, 36)
-            status = f"Recording Wall {self.recording_manager.current_wall_id}..." if self.recording_manager.recording_wall else "Ready to Record (press R to stop recording)"
-            self.last_cmdline = status
-            text = font.render(status, True, (255, 0, 0))
+            font_status = pygame.font.Font(None, 40)
+            if self.recording_manager.recording_wall:
+                status = f"🔴 RECORDING WALL #{self.recording_manager.current_wall_id}"
+                status_color = (255, 50, 50)  # Bright red
+            else:
+                status = "🔴 RECORDING MODE - Press R to Stop"
+                status_color = (255, 100, 0)  # Orange
             
-            # Calculate the size of the text and create a white box behind it
-            text_width, text_height = font.size(status)
-            pygame.draw.rect(self.screen, (255, 255, 255), (25, 5, text_width + 10, text_height + 10))  # White box
-            self.screen.blit(text, (30, 10))  # Blit text on top of the white box
+            text = font_status.render(status, True, status_color)
+            text_width, text_height = font_status.size(status)
+            
+            # Semi-transparent background
+            s = pygame.Surface((text_width + 30, text_height + 20))
+            s.set_alpha(220)
+            s.fill((255, 255, 255))
+            self.screen.blit(s, (10, 5))
+            self.screen.blit(text, (25, 12))
 
-        # Instructions
-        font = pygame.font.Font(None, 25)
-        instructions = "ESC: exit, SPACE: toggle trails, ENTER: toggle pan & zoom, L: load waypoints"
-        instructions2 = "R: toggle recording, W: toggle walls, V/D/P: mark Victims/Dangers/Pillars, M: load markers"
+        # Status Panel (top-right)
+        y_offset = 10
+        font_status_small = pygame.font.Font(None, 24)
+        status_lines = []
         
-        # Render instructions text
-        text = font.render(instructions, True, (0, 0, 0))
-        text2 = font.render(instructions2, True, (0, 0, 0))
+        # Selected tag
+        tag_text = f"Tag: {self.tag_registered if self.tag_registered != 0 else 'Auto (largest)'}"
+        status_lines.append((tag_text, (0, 100, 200)))
         
-        # Calculate the size of the instructions text and create white boxes behind them
-        text_width, text_height = font.size(instructions)
-        text2_width, text2_height = font.size(instructions2)
+        # Mouse simulation
+        if self.mouse_simulation:
+            status_lines.append(("🖱️  Mouse Simulation ON", (200, 0, 200)))
         
-        # Draw white boxes behind the instructions
-        pygame.draw.rect(self.screen, (255, 255, 255), (25, 35, text_width + 10, text_height + 10))  # White box for instructions
-        pygame.draw.rect(self.screen, (255, 255, 255), (25, 65, text2_width + 10, text2_height + 10))  # White box for instructions2
+        # Pan/Zoom
+        pan_status = "Pan/Zoom: ON" if self.controls_enabled else "Pan/Zoom: LOCKED"
+        status_lines.append((pan_status, (100, 100, 100)))
         
-        # Blit instructions text on top of the white boxes
-        self.screen.blit(text, (30, 40))
-        self.screen.blit(text2, (30, 70))
+        # Trails
+        trail_status = "Trails: Persistent" if self.visualization.persistent_trails else "Trails: Fading"
+        status_lines.append((trail_status, (100, 100, 100)))
+        
+        # Draw status panel
+        max_width = max([font_status_small.size(line[0])[0] for line in status_lines])
+        panel_height = len(status_lines) * 25 + 10
+        s = pygame.Surface((max_width + 20, panel_height))
+        s.set_alpha(200)
+        s.fill((255, 255, 255))
+        self.screen.blit(s, (screen_width - max_width - 30, y_offset))
+        
+        for i, (text_str, color) in enumerate(status_lines):
+            text = font_status_small.render(text_str, True, color)
+            self.screen.blit(text, (screen_width - max_width - 20, y_offset + 5 + i * 25))
 
-        # Draw buttons (DISABLED 13 MAR)
-        # self.button1.draw(self.screen)
-        # self.button2.draw(self.screen)
+        # Instructions Panel (bottom-left)
+        font_section = pygame.font.Font(None, 26)
+        font_key = pygame.font.Font(None, 22)
+        
+        instructions = []
+        
+        if self.recording_manager.recording:
+            # Recording mode instructions
+            instructions.extend([
+                ("RECORDING CONTROLS:", (255, 50, 0), True),
+                ("Q: Add Waypoint", (0, 0, 0), False),
+                ("W: Toggle Wall Recording", (0, 0, 0), False),
+                ("P: Mark Pillar", (0, 0, 0), False),
+                ("V: Mark Victim", (0, 0, 0), False),
+                ("D: Mark Danger Zone", (0, 0, 0), False),
+                ("Z: Undo Last Mark", (0, 0, 0), False),
+                ("R: Stop Recording & Save", (255, 0, 0), False),
+                ("", (0, 0, 0), False),
+            ])
+        else:
+            # Normal mode instructions
+            instructions.extend([
+                ("CONTROLS:", (0, 100, 200), True),
+                ("R: Start Recording", (0, 0, 0), False),
+                ("M: Load Markers", (0, 0, 0), False),
+                ("L: Load Waypoints", (0, 0, 0), False),
+                ("U: Toggle Mouse Simulation", (0, 0, 0), False),
+                ("1-9/0: Select Tag for Recording", (0, 0, 0), False),
+                ("", (0, 0, 0), False),
+            ])
+        
+        instructions.extend([
+            ("VIEW:", (0, 100, 200), True),
+            ("SPACE: Toggle Trails", (0, 0, 0), False),
+            ("ENTER: Toggle Pan/Zoom Lock", (0, 0, 0), False),
+            ("Scroll: Zoom In/Out", (0, 0, 0), False),
+            ("Left-Click Drag: Pan View", (0, 0, 0), False),
+            ("", (0, 0, 0), False),
+            ("ESC: Exit", (150, 0, 0), False),
+        ])
+        
+        # Calculate panel size
+        max_instr_width = 0
+        for text_str, _, is_section in instructions:
+            if text_str:
+                font_to_use = font_section if is_section else font_key
+                width = font_to_use.size(text_str)[0]
+                max_instr_width = max(max_instr_width, width)
+        
+        panel_height = len(instructions) * 22 + 15
+        s = pygame.Surface((max_instr_width + 30, panel_height))
+        s.set_alpha(200)
+        s.fill((255, 255, 255))
+        self.screen.blit(s, (10, screen_height - panel_height - 10))
+        
+        # Draw instructions
+        y_pos = screen_height - panel_height - 5
+        for text_str, color, is_section in instructions:
+            if text_str:
+                font_to_use = font_section if is_section else font_key
+                text = font_to_use.render(text_str, True, color)
+                self.screen.blit(text, (20, y_pos))
+            y_pos += 22
 
         pygame.display.update()
 

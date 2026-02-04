@@ -4,6 +4,7 @@
 #include "tello_uwb/uwb_republisher.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <stdexcept>
 
 namespace tello_uwb
@@ -19,15 +20,54 @@ UwbRepublisher::UwbRepublisher(const rclcpp::NodeOptions & options)
   this->declare_parameter<std::vector<std::string>>("drone_names", std::vector<std::string>{});
   this->declare_parameter<std::vector<int64_t>>("uwb_tag_ids", std::vector<int64_t>{});
 
+  // Filter parameters
+  this->declare_parameter<bool>("enable_filtering", true);
+  this->declare_parameter<double>("max_velocity", 8.0);  // m/s, Tello max speed
+  this->declare_parameter<double>("velocity_gate_timeout", 0.5);  // seconds
+  this->declare_parameter<int>("max_consecutive_rejections", 5);  // force-accept after N rejections
+  this->declare_parameter<int>("median_window_size", 5);
+  this->declare_parameter<int>("min_samples_for_median", 3);
+
   // Get parameters
   frame_id_ = this->get_parameter("frame_id").as_string();
   expected_role_ = this->get_parameter("expected_role").as_int();
   std::string input_topic = this->get_parameter("input_topic").as_string();
 
+  // Get filter parameters
+  enable_filtering_ = this->get_parameter("enable_filtering").as_bool();
+  max_velocity_ = this->get_parameter("max_velocity").as_double();
+  velocity_gate_timeout_ = this->get_parameter("velocity_gate_timeout").as_double();
+  max_consecutive_rejections_ = this->get_parameter("max_consecutive_rejections").as_int();
+  median_window_size_ = this->get_parameter("median_window_size").as_int();
+  min_samples_for_median_ = this->get_parameter("min_samples_for_median").as_int();
+
+  // Validate filter parameters
+  if (max_consecutive_rejections_ < 1) {
+    RCLCPP_WARN(this->get_logger(), "max_consecutive_rejections must be >= 1, setting to 5");
+    max_consecutive_rejections_ = 5;
+  }
+  if (median_window_size_ < 1) {
+    RCLCPP_WARN(this->get_logger(), "median_window_size must be >= 1, setting to 1");
+    median_window_size_ = 1;
+  }
+  if (min_samples_for_median_ < 1 || min_samples_for_median_ > median_window_size_) {
+    RCLCPP_WARN(this->get_logger(),
+      "min_samples_for_median must be in [1, %d], clamping", median_window_size_);
+    min_samples_for_median_ = std::clamp(min_samples_for_median_, 1, median_window_size_);
+  }
+
   RCLCPP_INFO(this->get_logger(), "UWB Republisher initializing...");
   RCLCPP_INFO(this->get_logger(), "  Frame ID: %s", frame_id_.c_str());
   RCLCPP_INFO(this->get_logger(), "  Expected role: %d", expected_role_);
   RCLCPP_INFO(this->get_logger(), "  Input topic: %s", input_topic.c_str());
+  RCLCPP_INFO(this->get_logger(), "  Filtering: %s", enable_filtering_ ? "enabled" : "disabled");
+  if (enable_filtering_) {
+    RCLCPP_INFO(this->get_logger(), "    Max velocity: %.2f m/s", max_velocity_);
+    RCLCPP_INFO(this->get_logger(), "    Velocity gate timeout: %.2f s", velocity_gate_timeout_);
+    RCLCPP_INFO(this->get_logger(), "    Max consecutive rejections: %d", max_consecutive_rejections_);
+    RCLCPP_INFO(this->get_logger(), "    Median window size: %d", median_window_size_);
+    RCLCPP_INFO(this->get_logger(), "    Min samples for median: %d", min_samples_for_median_);
+  }
 
   // Load drone configuration from parameters
   if (!loadDroneConfig()) {
@@ -139,8 +179,38 @@ void UwbRepublisher::anchorFrameCallback(
       continue;
     }
 
+    // Extract raw position from tag
+    geometry_msgs::msg::Point raw_position;
+    raw_position.x = static_cast<double>(tag.pos_3d[0]);
+    raw_position.y = static_cast<double>(tag.pos_3d[1]);
+    raw_position.z = static_cast<double>(tag.pos_3d[2]);
+
+    // Apply filtering if enabled
+    geometry_msgs::msg::Point output_position;
+    if (enable_filtering_) {
+      // Step 1: Velocity gating
+      if (!velocityGateAccept(tag.id, raw_position, stamp)) {
+        // Position rejected by velocity gate - skip this sample
+        continue;
+      }
+
+      // Step 2: Median filtering
+      auto filtered_pos = applyMedianFilter(tag.id, raw_position);
+      if (!filtered_pos.has_value()) {
+        // Buffer not yet filled to minimum - skip output
+        continue;
+      }
+      output_position = filtered_pos.value();
+    } else {
+      // Filtering disabled - use raw position
+      output_position = raw_position;
+    }
+
     // Create and publish the PointStamped message to individual topic
-    auto point_msg = createPointStamped(tag, stamp);
+    geometry_msgs::msg::PointStamped point_msg;
+    point_msg.header.stamp = stamp;
+    point_msg.header.frame_id = frame_id_;
+    point_msg.point = output_position;
     pub_it->second->publish(point_msg);
 
     // Add to aggregated message
@@ -172,6 +242,149 @@ geometry_msgs::msg::PointStamped UwbRepublisher::createPointStamped(
   point_msg.point.z = static_cast<double>(tag.pos_3d[2]);
 
   return point_msg;
+}
+
+bool UwbRepublisher::velocityGateAccept(
+  int tag_id,
+  const geometry_msgs::msg::Point & position,
+  const rclcpp::Time & stamp)
+{
+  auto & state = filter_states_[tag_id];
+  state.total_samples++;
+
+  // First sample - always accept and initialize
+  if (!state.initialized) {
+    state.initialized = true;
+    state.last_accepted_time = stamp;
+    state.last_accepted_position = position;
+    state.consecutive_rejections = 0;
+    return true;
+  }
+
+  // Calculate time delta
+  double dt = (stamp - state.last_accepted_time).seconds();
+
+  // Timeout check - if too long since last valid sample, reset the gate
+  if (dt > velocity_gate_timeout_) {
+    RCLCPP_DEBUG(this->get_logger(),
+      "Velocity gate timeout for tag %d (%.3fs), resetting", tag_id, dt);
+    state.last_accepted_time = stamp;
+    state.last_accepted_position = position;
+    state.consecutive_rejections = 0;
+    state.position_buffer.clear();  // Stale buffer after timeout
+    return true;
+  }
+
+  // Consecutive rejection check - force accept to prevent indefinite rejection spiral
+  if (state.consecutive_rejections >= max_consecutive_rejections_) {
+    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+      "Force-accepting position for tag %d after %d consecutive rejections "
+      "(possible UWB offset or fast maneuver)",
+      tag_id, state.consecutive_rejections);
+    state.last_accepted_time = stamp;
+    state.last_accepted_position = position;
+    state.consecutive_rejections = 0;
+    state.position_buffer.clear();  // Old buffer invalid after position jump
+    // Note: This sample bypasses velocity check but will still go through median filter
+    return true;
+  }
+
+  // Guard against division by zero (simultaneous samples)
+  constexpr double kMinDt = 0.001;  // 1ms minimum
+  if (dt < kMinDt) {
+    dt = kMinDt;
+  }
+
+  // Calculate displacement (Euclidean distance 2D)
+  double dx = position.x - state.last_accepted_position.x;
+  double dy = position.y - state.last_accepted_position.y;
+  double displacement = std::sqrt(dx * dx + dy * dy);
+
+  // Calculate implied velocity
+  double implied_velocity = displacement / dt;
+
+  // Velocity gate check
+  if (implied_velocity > max_velocity_) {
+    state.rejected_samples++;
+    state.consecutive_rejections++;
+    RCLCPP_DEBUG_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+      "Velocity gate rejected tag %d: %.2f m/s (threshold: %.2f m/s), "
+      "consecutive: %d, rejected %lu/%lu samples (%.1f%%)",
+      tag_id, implied_velocity, max_velocity_,
+      state.consecutive_rejections,
+      state.rejected_samples, state.total_samples,
+      100.0 * state.rejected_samples / state.total_samples);
+    return false;
+  }
+
+  // Accept the sample - update state and reset consecutive rejection counter
+  state.last_accepted_time = stamp;
+  state.last_accepted_position = position;
+  state.consecutive_rejections = 0;
+  return true;
+}
+
+std::optional<geometry_msgs::msg::Point> UwbRepublisher::applyMedianFilter(
+  int tag_id,
+  const geometry_msgs::msg::Point & accepted_position)
+{
+  auto & state = filter_states_[tag_id];
+
+  // Add to circular buffer
+  state.position_buffer.push_back(accepted_position);
+
+  // Maintain window size
+  while (static_cast<int>(state.position_buffer.size()) > median_window_size_) {
+    state.position_buffer.pop_front();
+  }
+
+  // Check if we have enough samples
+  if (static_cast<int>(state.position_buffer.size()) < min_samples_for_median_) {
+    return std::nullopt;
+  }
+
+  // Extract x, y, z components into separate vectors
+  std::vector<double> x_values, y_values, z_values;
+  x_values.reserve(state.position_buffer.size());
+  y_values.reserve(state.position_buffer.size());
+  z_values.reserve(state.position_buffer.size());
+
+  for (const auto & pos : state.position_buffer) {
+    x_values.push_back(pos.x);
+    y_values.push_back(pos.y);
+    z_values.push_back(pos.z);
+  }
+
+  // Compute median for each axis independently
+  geometry_msgs::msg::Point filtered;
+  filtered.x = computeMedian(x_values);
+  filtered.y = computeMedian(y_values);
+  filtered.z = computeMedian(z_values);
+
+  return filtered;
+}
+
+double UwbRepublisher::computeMedian(std::vector<double> & values)
+{
+  if (values.empty()) {
+    return 0.0;
+  }
+
+  size_t n = values.size();
+  size_t mid = n / 2;
+
+  // Use nth_element for O(n) average complexity
+  std::nth_element(values.begin(), values.begin() + mid, values.end());
+
+  if (n % 2 == 0) {
+    // Even number of elements - average of two middle values
+    double upper = values[mid];
+    auto max_it = std::max_element(values.begin(), values.begin() + mid);
+    return (*max_it + upper) / 2.0;
+  } else {
+    // Odd number of elements - middle value
+    return values[mid];
+  }
 }
 
 }  // namespace tello_uwb

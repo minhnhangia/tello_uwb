@@ -22,10 +22,11 @@ UwbRepublisher::UwbRepublisher(const rclcpp::NodeOptions & options)
 
   // Filter parameters
   this->declare_parameter<bool>("enable_filtering", true);
+  this->declare_parameter<bool>("enable_raw_publishing", false);  // Default off to save bandwidth
   this->declare_parameter<double>("max_velocity", 8.0);  // m/s, Tello max speed
   this->declare_parameter<double>("velocity_gate_timeout", 0.5);  // seconds
   this->declare_parameter<int>("max_consecutive_rejections", 5);  // force-accept after N rejections
-  this->declare_parameter<int>("median_window_size", 5);
+  this->declare_parameter<int>("median_window_size", 10);
   this->declare_parameter<int>("min_samples_for_median", 3);
 
   // Get parameters
@@ -35,6 +36,7 @@ UwbRepublisher::UwbRepublisher(const rclcpp::NodeOptions & options)
 
   // Get filter parameters
   enable_filtering_ = this->get_parameter("enable_filtering").as_bool();
+  enable_raw_publishing_ = this->get_parameter("enable_raw_publishing").as_bool();
   max_velocity_ = this->get_parameter("max_velocity").as_double();
   velocity_gate_timeout_ = this->get_parameter("velocity_gate_timeout").as_double();
   max_consecutive_rejections_ = this->get_parameter("max_consecutive_rejections").as_int();
@@ -61,6 +63,7 @@ UwbRepublisher::UwbRepublisher(const rclcpp::NodeOptions & options)
   RCLCPP_INFO(this->get_logger(), "  Expected role: %d", expected_role_);
   RCLCPP_INFO(this->get_logger(), "  Input topic: %s", input_topic.c_str());
   RCLCPP_INFO(this->get_logger(), "  Filtering: %s", enable_filtering_ ? "enabled" : "disabled");
+  RCLCPP_INFO(this->get_logger(), "  Raw publishing: %s", enable_raw_publishing_ ? "enabled" : "disabled");
   if (enable_filtering_) {
     RCLCPP_INFO(this->get_logger(), "    Max velocity: %.2f m/s", max_velocity_);
     RCLCPP_INFO(this->get_logger(), "    Velocity gate timeout: %.2f s", velocity_gate_timeout_);
@@ -137,14 +140,23 @@ bool UwbRepublisher::loadDroneConfig()
 void UwbRepublisher::createPublishers()
 {
   for (const auto & [tag_id, drone_name] : tag_to_drone_map_) {
+    // Filtered position publisher
     std::string topic_name = "/" + drone_name + "/uwb/position";
-    
     position_publishers_[tag_id] = 
       this->create_publisher<geometry_msgs::msg::PointStamped>(
         topic_name, 
         rclcpp::SensorDataQoS());
-
     RCLCPP_INFO(this->get_logger(), "  Created publisher: %s", topic_name.c_str());
+
+    // Raw position publisher (conditional - for comparison/debugging)
+    if (enable_raw_publishing_) {
+      std::string raw_topic_name = "/" + drone_name + "/uwb/position_raw";
+      raw_position_publishers_[tag_id] = 
+        this->create_publisher<geometry_msgs::msg::PointStamped>(
+          raw_topic_name, 
+          rclcpp::SensorDataQoS());
+      RCLCPP_INFO(this->get_logger(), "  Created publisher: %s", raw_topic_name.c_str());
+    }
   }
 }
 
@@ -184,6 +196,18 @@ void UwbRepublisher::anchorFrameCallback(
     raw_position.x = static_cast<double>(tag.pos_3d[0]);
     raw_position.y = static_cast<double>(tag.pos_3d[1]);
     raw_position.z = static_cast<double>(tag.pos_3d[2]);
+
+    // Publish raw position if enabled (for comparison/debugging)
+    if (enable_raw_publishing_) {
+      auto raw_pub_it = raw_position_publishers_.find(tag.id);
+      if (raw_pub_it != raw_position_publishers_.end()) {
+        geometry_msgs::msg::PointStamped raw_msg;
+        raw_msg.header.stamp = stamp;
+        raw_msg.header.frame_id = frame_id_;
+        raw_msg.point = raw_position;
+        raw_pub_it->second->publish(raw_msg);
+      }
+    }
 
     // Apply filtering if enabled
     geometry_msgs::msg::Point output_position;

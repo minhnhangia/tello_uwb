@@ -137,6 +137,7 @@ private:
   int median_window_size_;          ///< Number of samples for median filter
   int min_samples_for_median_;      ///< Minimum samples before outputting median
   bool enable_filtering_;           ///< Master switch for filtering
+  bool enable_raw_publishing_;      ///< Whether to publish raw position data
 
   // Per-drone filter state
   std::unordered_map<int, DroneFilterState> filter_states_;
@@ -144,9 +145,13 @@ private:
   // Drone configurations: maps uwb_tag_id -> drone_name
   std::unordered_map<int, std::string> tag_to_drone_map_;
 
-  // Maps uwb_tag_id -> publisher
+  // Maps uwb_tag_id -> filtered position publisher
   std::unordered_map<int, rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr>
     position_publishers_;
+
+  // Maps uwb_tag_id -> raw position publisher (for debugging/comparison)
+  std::unordered_map<int, rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr>
+    raw_position_publishers_;
 
   // Aggregated publisher for all drone positions
   rclcpp::Publisher<tello_uwb::msg::DronePositionArray>::SharedPtr positions_array_pub_;

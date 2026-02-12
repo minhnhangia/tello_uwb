@@ -15,6 +15,7 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPo
 
 from tello_uwb_py.constants import *
 from tello_uwb_py.utils import *
+from tello_uwb_py.mapping import export_to_ros_map
 import pandas as pd
 
 from tello_uwb.msg import DronePositionArray
@@ -232,6 +233,162 @@ class UWBVisualization(Node):
         
         return False
 
+    def export_map_dialog(self, parent_window=None):
+        """Dialog to select a JSON file from UWBVIZ_DIR and export it as a ROS2 occupancy grid map."""
+
+        # Create a Tkinter window for the dialog
+        dialog_window = tk.Toplevel(parent_window)
+        dialog_window.title("Export Occupancy Grid Map")
+        dialog_width = 450
+        dialog_height = 340
+        dialog_window.geometry(f"{dialog_width}x{dialog_height}")
+
+        # Force to be on top and take focus
+        dialog_window.attributes("-topmost", True)
+
+        # Center dialog on screen
+        dialog_window.update_idletasks()
+        screen_width = dialog_window.winfo_screenwidth()
+        screen_height = dialog_window.winfo_screenheight()
+        x = (screen_width - dialog_window.winfo_width()) // 2
+        y = (screen_height - dialog_window.winfo_height()) // 2
+        dialog_window.geometry(f"+{x}+{y}")
+
+        # Get list of JSON files in UWBViz/ directory
+        json_files = []
+        try:
+            UWBVIZ_DIR.mkdir(parents=True, exist_ok=True)
+            json_files = sorted([f.replace('.json', '') for f in os.listdir(UWBVIZ_DIR) if f.endswith('.json')])
+        except Exception as e:
+            print(f"Warning: Could not list files in {UWBVIZ_DIR}: {e}")
+
+        if not json_files:
+            print("[WARN] No JSON files found in UWBViz directory.")
+            dialog_window.destroy()
+            return False
+
+        # --- Source file selector ---
+        tk.Label(dialog_window, text="Source JSON (walls/pillars):").pack(pady=(10, 2))
+        source_var = tk.StringVar(value=json_files[0])
+        source_combo = ttk.Combobox(dialog_window, textvariable=source_var, values=json_files, width=35)
+        source_combo.pack(pady=2)
+        source_combo.configure(state="readonly")
+
+        # Pre-select the currently loaded file if available
+        if self.loaded_marked_pos_filename and self.loaded_marked_pos_filename in json_files:
+            source_combo.set(self.loaded_marked_pos_filename)
+
+        # --- Output filename ---
+        tk.Label(dialog_window, text="Output filename (without extension):").pack(pady=(8, 2))
+        output_var = tk.StringVar(value="")
+        output_entry = tk.Entry(dialog_window, textvariable=output_var, width=38)
+        output_entry.pack(pady=2)
+
+        # --- Resolution ---
+        res_frame = tk.Frame(dialog_window)
+        res_frame.pack(pady=(8, 2))
+        tk.Label(res_frame, text="Resolution (m/px):").pack(side=tk.LEFT, padx=(0, 5))
+        res_var = tk.StringVar(value="0.05")
+        res_entry = tk.Entry(res_frame, textvariable=res_var, width=8)
+        res_entry.pack(side=tk.LEFT)
+
+        # --- Safety Buffer: Wall Thickness ---
+        wall_frame = tk.Frame(dialog_window)
+        wall_frame.pack(pady=(8, 2))
+        tk.Label(wall_frame, text="Wall Thickness (m):").pack(side=tk.LEFT, padx=(0, 5))
+        wall_var = tk.StringVar(value="1.0")
+        wall_entry = tk.Entry(wall_frame, textvariable=wall_var, width=8)
+        wall_entry.pack(side=tk.LEFT)
+
+        # --- Safety Buffer: Pillar Radius ---
+        pillar_frame = tk.Frame(dialog_window)
+        pillar_frame.pack(pady=(2, 2))
+        tk.Label(pillar_frame, text="Pillar Radius (m):").pack(side=tk.LEFT, padx=(0, 5))
+        pillar_var = tk.StringVar(value="0.5")
+        pillar_entry = tk.Entry(pillar_frame, textvariable=pillar_var, width=8)
+        pillar_entry.pack(side=tk.LEFT)
+
+        result = {"action": None}
+
+        def on_export():
+            result["action"] = "export"
+            dialog_window.destroy()
+
+        def on_cancel():
+            dialog_window.destroy()
+
+        dialog_window.bind('<Return>', lambda e: on_export())
+        dialog_window.bind('<Escape>', lambda e: on_cancel())
+
+        # Button frame
+        button_frame = tk.Frame(dialog_window)
+        button_frame.pack(pady=12)
+        tk.Button(button_frame, text="Export", command=on_export).pack(side=tk.LEFT, padx=10)
+        tk.Button(button_frame, text="Cancel", command=on_cancel).pack(side=tk.LEFT, padx=10)
+
+        dialog_window.after(100, lambda: dialog_window.focus_force())
+        source_combo.focus_set()
+
+        # Make window modal
+        dialog_window.grab_set()
+        dialog_window.wait_window()
+
+        # --- Process result ---
+        if result["action"] != "export":
+            return False
+
+        source_name = source_var.get()
+        output_name = output_var.get().strip() or source_name
+
+        # Parse resolution
+        try:
+            resolution = float(res_var.get())
+            if resolution <= 0:
+                raise ValueError
+        except ValueError:
+            print("[ERROR] Invalid resolution value. Using default 0.05 m/px.")
+            resolution = 0.05
+
+        # Parse wall thickness
+        try:
+            wall_thickness = float(wall_var.get())
+            if wall_thickness < 0:
+                raise ValueError
+        except ValueError:
+            print("[ERROR] Invalid wall thickness value. Using default 1.0 m.")
+            wall_thickness = 1.0
+
+        # Parse pillar radius
+        try:
+            pillar_radius = float(pillar_var.get())
+            if pillar_radius < 0:
+                raise ValueError
+        except ValueError:
+            print("[ERROR] Invalid pillar radius value. Using default 0.5 m.")
+            pillar_radius = 0.5
+
+        # Load points from selected JSON
+        source_path = UWBVIZ_DIR / f"{source_name}.json"
+        try:
+            with open(source_path, 'r') as f:
+                data = json.load(f)
+            points = data.get("points", [])
+        except Exception as e:
+            print(f"[ERROR] Could not load {source_path}: {e}")
+            return False
+
+        if not points:
+            print(f"[WARN] No points found in {source_name}.json")
+            return False
+
+        # Call the export function with safety buffer parameters
+        export_to_ros_map(points, 
+                         filename=output_name, 
+                         resolution=resolution,
+                         wall_thickness_m=wall_thickness,
+                         pillar_radius_m=pillar_radius)
+        return True
+
     def positions_callback(self, msg: DronePositionArray):
         """Callback for receiving aggregated UWB positions from ROS2 topic."""
         # Don't process real data when in mouse simulation mode
@@ -404,6 +561,10 @@ class UWBVisualization(Node):
                 print("Marked points loaded successfully")
             else:
                 print("Marked points not loaded")
+        elif key == pygame.K_e and not self.recording_manager.recording:
+            self.pause_data_thread()
+            self.export_map_dialog()
+            self.resume_data_thread()
         elif key in (pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4, pygame.K_5, pygame.K_6, pygame.K_7, pygame.K_8, pygame.K_9, pygame.K_0) and not self.recording_manager.recording:
             number_pressed = key_to_number.get(key)
             self.tag_registered = int(number_pressed)
@@ -530,6 +691,7 @@ class UWBVisualization(Node):
                 ("R: Start Recording", (0, 0, 0), False),
                 ("M: Load Markers", (0, 0, 0), False),
                 ("L: Load Waypoints", (0, 0, 0), False),
+                ("E: Export Occupancy Grid", (0, 0, 0), False),
                 ("U: Toggle Mouse Simulation", (0, 0, 0), False),
                 ("1-9/0: Select Tag for Recording", (0, 0, 0), False),
                 ("", (0, 0, 0), False),

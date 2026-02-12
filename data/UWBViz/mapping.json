@@ -1,0 +1,282 @@
+{
+    "points": [
+        {
+            "x": 0.03,
+            "y": 0.03,
+            "z": 0,
+            "type": "wall_start"
+        },
+        {
+            "x": 0.03,
+            "y": 20.1,
+            "z": 0,
+            "type": "wall_end"
+        },
+        {
+            "x": 0.03,
+            "y": 20.0,
+            "z": 0,
+            "type": "wall_start"
+        },
+        {
+            "x": 19.97,
+            "y": 20.1,
+            "z": 0,
+            "type": "wall_end"
+        },
+        {
+            "x": 20.0,
+            "y": 20.17,
+            "z": 0,
+            "type": "wall_start"
+        },
+        {
+            "x": 20.03,
+            "y": 0.0,
+            "z": 0,
+            "type": "wall_end"
+        },
+        {
+            "x": 19.97,
+            "y": 0.1,
+            "z": 0,
+            "type": "wall_start"
+        },
+        {
+            "x": 0.0,
+            "y": 0.03,
+            "z": 0,
+            "type": "wall_end"
+        },
+        {
+            "x": 0.17,
+            "y": 13.3,
+            "z": 0,
+            "type": "wall_start"
+        },
+        {
+            "x": 2.1,
+            "y": 13.37,
+            "z": 0,
+            "type": "wall_end"
+        },
+        {
+            "x": 2.27,
+            "y": 13.37,
+            "z": 0,
+            "type": "wall_start"
+        },
+        {
+            "x": 2.3,
+            "y": 17.43,
+            "z": 0,
+            "type": "wall_end"
+        },
+        {
+            "x": 3.9,
+            "y": 17.4,
+            "z": 0,
+            "type": "wall_start"
+        },
+        {
+            "x": 8.3,
+            "y": 17.4,
+            "z": 0,
+            "type": "wall_end"
+        },
+        {
+            "x": 4.7,
+            "y": 15.2,
+            "z": 0,
+            "type": "wall_start"
+        },
+        {
+            "x": 8.57,
+            "y": 15.23,
+            "z": 0,
+            "type": "wall_end"
+        },
+        {
+            "x": 4.73,
+            "y": 15.13,
+            "z": 0,
+            "type": "wall_start"
+        },
+        {
+            "x": 4.77,
+            "y": 11.0,
+            "z": 0,
+            "type": "wall_end"
+        },
+        {
+            "x": 2.7,
+            "y": 8.47,
+            "z": 0,
+            "type": "wall_start"
+        },
+        {
+            "x": 4.7,
+            "y": 8.47,
+            "z": 0,
+            "type": "wall_end"
+        },
+        {
+            "x": 4.7,
+            "y": 8.47,
+            "z": 0,
+            "type": "wall_start"
+        },
+        {
+            "x": 4.77,
+            "y": 4.47,
+            "z": 0,
+            "type": "wall_end"
+        },
+        {
+            "x": 4.77,
+            "y": 4.47,
+            "z": 0,
+            "type": "wall_start"
+        },
+        {
+            "x": 8.57,
+            "y": 4.4,
+            "z": 0,
+            "type": "wall_end"
+        },
+        {
+            "x": 11.6,
+            "y": 4.4,
+            "z": 0,
+            "type": "wall_start"
+        },
+        {
+            "x": 15.17,
+            "y": 4.4,
+            "z": 0,
+            "type": "wall_end"
+        },
+        {
+            "x": 15.17,
+            "y": 4.4,
+            "z": 0,
+            "type": "wall_start"
+        },
+        {
+            "x": 15.27,
+            "y": 8.4,
+            "z": 0,
+            "type": "wall_end"
+        },
+        {
+            "x": 17.6,
+            "y": 8.57,
+            "z": 0,
+            "type": "wall_start"
+        },
+        {
+            "x": 17.5,
+            "y": 11.17,
+            "z": 0,
+            "type": "wall_end"
+        },
+        {
+            "x": 17.5,
+            "y": 11.17,
+            "z": 0,
+            "type": "wall_start"
+        },
+        {
+            "x": 15.2,
+            "y": 11.23,
+            "z": 0,
+            "type": "wall_end"
+        },
+        {
+            "x": 15.27,
+            "y": 11.23,
+            "z": 0,
+            "type": "wall_start"
+        },
+        {
+            "x": 15.23,
+            "y": 15.23,
+            "z": 0,
+            "type": "wall_end"
+        },
+        {
+            "x": 15.2,
+            "y": 15.2,
+            "z": 0,
+            "type": "wall_start"
+        },
+        {
+            "x": 11.57,
+            "y": 15.2,
+            "z": 0,
+            "type": "wall_end"
+        },
+        {
+            "x": 11.93,
+            "y": 19.83,
+            "z": 0,
+            "type": "wall_start"
+        },
+        {
+            "x": 11.87,
+            "y": 17.7,
+            "z": 0,
+            "type": "wall_end"
+        },
+        {
+            "x": 17.0,
+            "y": 17.73,
+            "z": 0,
+            "type": "wall_start"
+        },
+        {
+            "x": 17.03,
+            "y": 15.73,
+            "z": 0,
+            "type": "wall_end"
+        },
+        {
+            "x": 17.13,
+            "y": 16.77,
+            "z": 0,
+            "type": "wall_start"
+        },
+        {
+            "x": 19.8,
+            "y": 16.73,
+            "z": 0,
+            "type": "wall_end"
+        },
+        {
+            "x": 17.5,
+            "y": 13.33,
+            "z": 0,
+            "type": "pillar"
+        },
+        {
+            "x": 16.57,
+            "y": 6.53,
+            "z": 0,
+            "type": "pillar"
+        },
+        {
+            "x": 18.5,
+            "y": 6.5,
+            "z": 0,
+            "type": "pillar"
+        }
+    ],
+    "metadata": {
+        "total_points": 45,
+        "total_wall_segments": 21,
+        "total_pillars": 3,
+        "total_victims": 0,
+        "total_danger": 0,
+        "total_waypoints": 0
+    }
+}
